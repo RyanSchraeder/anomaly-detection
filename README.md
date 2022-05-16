@@ -1,4 +1,4 @@
-# anomaly-detection
+# Anomaly Detection
 Regis MSDS Anomaly Detection - Predictive Analytics Project.
 Technology: R
 
