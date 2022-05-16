@@ -1,0 +1,175 @@
+---
+title: "Week 7 Anomaly Detection"
+author: "Ryan Schraeder"
+date: '2022-04-24'
+course: "Statistical Inference & Predictive Analytics"
+instructor: "Dr. Siripun Sanguansintukul"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r include=FALSE}
+## Algorithms
+library('e1071') # One Class SVM
+library("h2o") # 
+library('outliers') # Stat tests
+library('EnvStats') 
+library('tsoutliers') # Time series outlier test
+library('AnomalyDetection') # Anomaly Detection Lib
+
+## Plots & Data Munging
+library(ggplot2)
+library(dplyr)
+```
+
+In this week's exercise, I'll be diving into outlier detection methods in the provided yearly earthquake data. First and foremost, I'll need to take a look at the data to assess data types, observations, and central tendencies. 
+
+## Exploratory Analysis
+```{r}
+data<-read.csv('/Users/rschraeder/Downloads/wk7_eq.csv')
+str(data)
+```
+As it appears, there are 99 observations with two variables
+1. An integer type variable indicating year.
+2. An integer type variable indicating number of earthquakes within the given year.
+
+```{r}
+sum(is.na(data))
+```
+There are no null values, so imputation won't be necessary. 
+```{r}
+summary(data)
+```
+Summarizing the data, our central tendences show that the timeline is about 100 years, the average amount of earthquakes per year is 20, and the most earthquakes witnessed in a given year is 41. Let's continue the exploratory analysis with a boxplot to better visualize these statistics and understand the distribution of our data. 
+
+## Plots
+```{r}
+## Boxplot
+ggplot(data, aes(x = year, y = earthquakes)) + 
+  geom_boxplot(color = "black", fill = "lightblue", outlier.color = "red") +
+  geom_jitter(color='black', size=0.5, alpha=0.9) +
+  ggtitle("Interquartile Range of Earthquakes by Year & Outliers") +
+  xlab("Year") +
+  ylab("Total Earthquakes")
+```
+As we can see, the scatter of our data points suggests an up and down trend of earthquake activity with few outliers in 1949. We can get a better idea of the trend of these earthquakes by converting the data to a time-series object. 
+
+```{r}
+ts_data <- ts(data$earthquakes, start=1900, end=1998, frequency=1)
+plot(ts_data, main="Earthquake Frequency Over Time", ylab="Earthquakes", col="blue")
+```
+We can see the trend outlined in this line plot, where the volume of earthquakes has many spikes between 1939-1950 and an unexpected spike just before 1960. However, we can tell the data is rather sporadic. This case will be a perfect example of using anomaly detection to understand any years where earthquake volume increased significantly outside of tendencies in our data. 
+
+## Anomaly Detection Methods
+
+### Statistical Methods 
+Using statistical methods, we can measure significance tests to locate outliers in our data. Several tests can be used for this, and we can compare outliers on both ends of the data to see if there is a consistent pattern in outlier detection. 
+
+```{r}
+# Sample
+sample<- sample(data$earthquakes,30)
+
+#Dixon Test 
+dixon.test(sample)
+
+#Grubbs Test
+grubbs.test(sample)
+
+#Chi-Squared Test
+chisq.out.test(sample)
+
+```
+Using a sample of our data of 30 records, each test can be run. Collectively, the alternative hypothesis of the high end (right tail) of the data being an outlier is proven, given p-values are less than 0.05. The Grubbs test displays proof for the null hypothesis, but we can attest the upper boundary of the data is non-normal. 
+
+Testing for the lower boundary may conclude our testing. 
+```{r}
+#Dixon Test 
+dixon.test(sample, opposite=TRUE)
+
+#Grubbs Test
+grubbs.test(sample, opposite=TRUE)
+
+#Chi-Squared Test
+chisq.out.test(sample, opposite=TRUE)
+
+```
+
+No outliers exist in the lower boundary (left tail) of our data, as proven by the p-values greatly exceeding 0.05. The case here shows that higher frequencies of earthquakes are unusual. 
+
+When reflecting upon the data, we can plot a histogram. The amount of earthquakes can be sorted into bins, and the distribution of data within those margins will show where most of the data will be sorted. 
+```{r}
+hist(data$earthquakes,
+  xlab = "earthquakes",
+  main = "Distribution of Earthquakes",
+  breaks = sqrt(nrow(data)),
+  col=blues9
+) # set number of bins
+```
+Here, we can see there is a split density of the data. Essentially, most of the data exists between 5 and 25 total earthquakes, with some outliers past 30. Compared to the statistics tests, we see our smaller sample indicates the upper bound of 39 is an outlier. Therefore, we can consider the upper bound of our data having outliers, mainly past 39 being considered outliers. This means any years with more than 39 earthquakes may be considered abnormal. 
+
+For time-series related claims as such, we can use `tso()` to test for time-series outliers. 
+```{r}
+tso_table <-tso(ts_data)
+tso_table
+plot(tso_table)
+```
+
+When we viewed our boxplot, we saw most outliers in 1949. One outlier occurred close to 1949 but wasn't registered. This data shows us different types of outliers: 
+
+"By default: "AO" additive outliers, "LS" level shifts, and "TC" temporary changes are selected; "IO" innovative outliers and "SLS" seasonal level shifts can also be selected."
+
+Source: [TSO Documentation](https://www.rdocumentation.org/packages/tsoutliers/versions/0.6-8/topics/tso)
+
+We can infer that outliers exist in 1943 and 1957, with a t-statistic used to test for them. The visualization highlights these outliers that were initally missing from the boxplot, and are indeed outliers. Furthermore, we can also prove that outliers persist between 1940 and 1960.
+
+This all makes sense, however we may be also concisely detect outliers using a classifier.
+
+## Diving Deeper Using an SVM Unsupervised Technique
+
+### One-Class SVM Unsupervised Technique
+```{r}
+model_oneclasssvm <- svm(data,type='one-classification',kernel = "radial",gamma=0.05,nu=0.05)
+model_oneclasssvm
+```
+
+Using this technique, we use a SVM to turn linear classifications into a non-linear form, and decisions are created upon those classifications. This helps us to directly  identify outliers among data. 
+
+```{r}
+preds <- predict(model_oneclasssvm,data)
+data$preds <- (preds)
+str(data)
+```
+The values generated will be classified as false if they prove to be outliers. We can count the amount of these values and compare: 
+```{r}
+data %>% 
+    count(preds = factor(preds)) %>% 
+    mutate(pct = prop.table(n)) %>% 
+    ggplot(aes(x = preds, y = pct, fill = preds, label = scales::percent(pct))) + 
+    geom_col(position = 'dodge') + 
+    geom_text(position = position_dodge(width = .9),    # move to center of bars
+              vjust = -0.5,    # nudge above top of bar
+              size = 3) + 
+    scale_y_continuous(labels = scales::percent)+
+    ggtitle("Distribution of Predictions")+
+    xlab("Predictions")+
+    ylab("Percentage")
+```
+There are 5% outliers within the data. We can also look at this in the original data. 
+
+```{r}
+data %>%
+  filter(preds =="FALSE")
+```
+The years specifically indicated as outliers were very similar to those located in the boxplot and prior plots, indicating this model has made accurate decisions upon the decision boundary it had created. We notice two outliers at the beginning and end of our data that are a lower value, which indicates there is a normal relationship of these outliers too. That tells us some years lead to heavy earthquake activity, and something may have caused these anomalies worth investigating further. 
+
+# Conclusion
+
+There are plenty of ways to detect outliers within your data and draw predictions that may display outliers to you. As you consider larger datasets, machine learning classifiers such as an RBF Kernel SVM / Non-Linear SVM become very useful. At face value, we can't always see outliers straight away. With the help of statistics tests, time-series outlier detection (where warranted), and machine-learning algorithms, we can achieve satisfying results. 
+
+# References 
+- https://statsandr.com/blog/outliers-detection-in-r/#grubbss-test
+- https://www.datavedas.com/anomaly-detection-in-r/
+- https://www.datacamp.com/community/tutorials/support-vector-machines-r
+- https://datascienceplus.com/outliers-detection-and-intervention-analysis/
