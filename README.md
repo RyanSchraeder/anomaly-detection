@@ -1,5 +1,6 @@
 # anomaly-detection
 Regis MSDS Anomaly Detection - Predictive Analytics Project.
+Technology: R
 
 Utilized a variety of methods to detect outliers in earthquake occurrences alongside time-series data. Methods included statistics tests, exploratory analysis, time-series analysis, and machine learning based outlier detection. 
 
